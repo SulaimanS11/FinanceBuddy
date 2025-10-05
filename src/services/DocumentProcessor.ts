@@ -67,14 +67,17 @@ export class DocumentProcessor {
     const documents: Document[] = [];
 
     for (const chunk of chunks) {
+      const chapter = this.extractChapter(chunk.content, rawDoc.metadata);
+      const section = this.extractSection(chunk.content, rawDoc.metadata);
+      
       const document: Document = {
         id: this.generateDocumentId(rawDoc.source, chunk.index),
         title: chunk.title,
         content: chunk.content,
         type: rawDoc.type,
         source: rawDoc.source,
-        chapter: this.extractChapter(chunk.content, rawDoc.metadata),
-        section: this.extractSection(chunk.content, rawDoc.metadata),
+        ...(chapter && { chapter }),
+        ...(section && { section }),
         tags: this.extractTags(chunk.content, rawDoc.type),
         embedding: [], // Will be generated later
         metadata: {
@@ -125,8 +128,12 @@ export class DocumentProcessor {
             return true;
           });
 
-          processedDocuments.push(...validDocuments);
-          successfulDocuments++;
+          if (validDocuments.length > 0) {
+            processedDocuments.push(...validDocuments);
+            successfulDocuments++;
+          } else {
+            failedDocuments++;
+          }
         } catch (error) {
           failedDocuments++;
           errors.push({
@@ -161,11 +168,21 @@ export class DocumentProcessor {
     const result = await this.processDocuments(rawDocs);
     
     if (result.processedDocuments.length > 0) {
-      // Generate embeddings in batches
-      await this.generateEmbeddingsForDocuments(result.processedDocuments);
-      
-      // Store documents in vector store
-      await this.vectorStore.storeDocuments(result.processedDocuments);
+      try {
+        // Generate embeddings in batches
+        await this.generateEmbeddingsForDocuments(result.processedDocuments);
+        
+        // Store documents in vector store
+        await this.vectorStore.storeDocuments(result.processedDocuments);
+      } catch (error) {
+        // If embedding or storage fails, remove the processed documents and add error
+        result.processedDocuments.length = 0;
+        result.errors.push({
+          source: 'embedding_generation',
+          error: error instanceof Error ? error.message : 'Unknown embedding error',
+          severity: 'error'
+        });
+      }
     }
 
     return result;
@@ -180,10 +197,12 @@ export class DocumentProcessor {
 
     for (let i = 0; i < documents.length; i++) {
       const result = embeddingResults[i];
-      if (result.error) {
-        throw new Error(`Failed to generate embedding for document ${documents[i].id}: ${result.error}`);
+      if (result?.error) {
+        throw new Error(`Failed to generate embedding for document ${documents[i]?.id}: ${result.error}`);
       }
-      documents[i].embedding = result.embedding;
+      if (documents[i] && result) {
+        documents[i]!.embedding = result.embedding;
+      }
     }
   }
 
@@ -193,8 +212,8 @@ export class DocumentProcessor {
   private chunkDocument(rawDoc: RawDocument): Array<{ content: string; title: string; index: number }> {
     const chunks: Array<{ content: string; title: string; index: number }> = [];
     
-    if (rawDoc.type === 'qa_pair') {
-      // Q&A pairs are typically kept as single chunks
+    if (rawDoc.type === 'qa_pair' || rawDoc.content.length <= this.config.chunkSize) {
+      // Q&A pairs or small documents are kept as single chunks
       chunks.push({
         content: rawDoc.content,
         title: rawDoc.title,
@@ -266,7 +285,7 @@ export class DocumentProcessor {
     
     for (let i = currentIndex - 1; i >= 0 && currentLength < overlapLength; i--) {
       const sentence = sentences[i];
-      if (currentLength + sentence.length <= overlapLength) {
+      if (sentence && currentLength + sentence.length <= overlapLength) {
         overlap = sentence + (overlap ? ' ' : '') + overlap;
         currentLength += sentence.length;
       } else {
@@ -281,8 +300,8 @@ export class DocumentProcessor {
    * Extract chapter information from content or metadata
    */
   private extractChapter(content: string, metadata?: Record<string, any>): string | undefined {
-    if (metadata?.chapter) {
-      return metadata.chapter;
+    if (metadata?.['chapter']) {
+      return metadata['chapter'];
     }
     
     // Try to extract chapter from content using regex
@@ -294,12 +313,12 @@ export class DocumentProcessor {
    * Extract section information from content or metadata
    */
   private extractSection(content: string, metadata?: Record<string, any>): string | undefined {
-    if (metadata?.section) {
-      return metadata.section;
+    if (metadata?.['section']) {
+      return metadata['section'];
     }
     
     // Try to extract section from content
-    const sectionMatch = content.match(/Section\s+(\d+(?:\.\d+)*)[\s:]/i);
+    const sectionMatch = content.match(/Section\s+(\d+(?:\.\d+)*)/i);
     return sectionMatch ? sectionMatch[1] : undefined;
   }
 

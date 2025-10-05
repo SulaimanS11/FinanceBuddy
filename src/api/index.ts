@@ -4,6 +4,7 @@ export * from './middleware';
 
 import { Router } from 'express';
 import sessionsRouter from './routes/sessions';
+import quizExportRouter from './routes/quizExport';
 import { errorHandler, notFoundHandler, addRateLimitHeaders, validateServicesMiddleware } from './middleware/errorHandler';
 import { rateLimitConfig } from './middleware/rateLimit';
 import { contentSecurityMiddleware } from './middleware/validation';
@@ -22,6 +23,7 @@ export function createApiRouter(): Router {
 
   // API routes
   router.use('/sessions', sessionsRouter);
+  router.use('/quiz', quizExportRouter);
 
   // Health check endpoint
   router.get('/health', (_req, res) => {

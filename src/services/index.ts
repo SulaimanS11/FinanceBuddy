@@ -6,3 +6,6 @@ export * from './VectorStore';
 export * from './ContextRetriever';
 export * from './SessionManager';
 export * from './FlowController';
+export * from './DocumentProcessor';
+export * from './DataIngestionPipeline';
+export * from './QuizExportService';

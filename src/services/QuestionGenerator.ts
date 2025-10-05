@@ -151,9 +151,12 @@ export class QuestionGenerator {
       const retrievalOptions: RetrievalOptions = {
         limit: 20, // Get more documents for better context
         minScore: options.minRelevanceScore || 0.6,
-        documentTypes: options.documentTypes,
         includeMetadata: true
       };
+
+      if (options.documentTypes) {
+        retrievalOptions.documentTypes = options.documentTypes;
+      }
 
       // Try multiple query variations to get comprehensive context
       const contexts: RetrievedContext[] = [];
@@ -196,7 +199,7 @@ export class QuestionGenerator {
   ): Promise<Question[]> {
     try {
       // Prepare context for prompt
-      const contextText = this.prepareContextText(context, options.maxContextLength);
+      const contextText = this.prepareContextText(context, options.maxContextLength || this.maxContextLength);
 
       // Generate prompt using PromptManager
       const promptContext: QuestionGenerationContext = {
@@ -324,8 +327,8 @@ export class QuestionGenerator {
 
     // Sort documents by relevance score
     const sortedDocs = context.documents
-      .map((doc, index) => ({ doc, score: context.relevanceScores[index] }))
-      .sort((a, b) => b.score - a.score);
+      .map((doc, index) => ({ doc, score: context.relevanceScores[index] || 0 }))
+      .sort((a, b) => (b.score || 0) - (a.score || 0));
 
     for (const { doc } of sortedDocs) {
       const docText = `Title: ${doc.title}\nContent: ${doc.content}\nSource: ${doc.source}\n\n`;
@@ -359,7 +362,7 @@ export class QuestionGenerator {
       totalResults += context.totalResults;
       
       context.documents.forEach((doc, index) => {
-        const score = context.relevanceScores[index];
+        const score = context.relevanceScores[index] || 0;
         const existing = allDocuments.get(doc.id);
         
         if (!existing || score > existing.score) {

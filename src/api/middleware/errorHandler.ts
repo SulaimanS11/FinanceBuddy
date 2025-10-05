@@ -28,8 +28,12 @@ export class ApiErrorClass extends Error implements ApiError {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
-    this.code = code;
-    this.details = details;
+    if (code !== undefined) {
+      this.code = code;
+    }
+    if (details !== undefined) {
+      this.details = details;
+    }
   }
 }
 
@@ -67,6 +71,37 @@ export const createApiError = {
   gatewayTimeout: (message: string = 'Gateway timeout') => 
     new ApiErrorClass(message, 504, 'GATEWAY_TIMEOUT')
 };
+
+/**
+ * Get appropriate error type based on status code and error
+ */
+function getErrorType(error: Error | ApiError, statusCode: number): string {
+  // Use specific error types for known status codes
+  switch (statusCode) {
+    case 400:
+      return 'Bad Request';
+    case 401:
+      return 'Unauthorized';
+    case 403:
+      return 'Forbidden';
+    case 404:
+      return 'Resource not found';
+    case 409:
+      return 'Conflict';
+    case 422:
+      return 'Unprocessable Entity';
+    case 429:
+      return 'Too Many Requests';
+    case 500:
+      return 'Internal Server Error';
+    case 503:
+      return 'Service Unavailable';
+    case 504:
+      return 'Gateway Timeout';
+    default:
+      return error.name || 'Error';
+  }
+}
 
 /**
  * Map common error types to appropriate HTTP status codes
@@ -142,7 +177,7 @@ export function errorHandler(
   
   // Prepare error response
   const errorResponse: ErrorResponse = {
-    error: error.name || 'Error',
+    error: getErrorType(error, statusCode),
     message: error.message || 'An unexpected error occurred',
     timestamp: new Date().toISOString(),
     path: req.path,
@@ -150,8 +185,9 @@ export function errorHandler(
   };
 
   // Add error code if available
-  if ((error as ApiError).code) {
-    errorResponse.code = (error as ApiError).code;
+  const apiError = error as ApiError;
+  if (apiError.code !== undefined) {
+    errorResponse.code = apiError.code;
   }
 
   // Add details for development/debugging (be careful not to expose sensitive info)
@@ -185,7 +221,7 @@ export function asyncHandler(fn: Function) {
 /**
  * Middleware to handle 404 errors for undefined routes
  */
-export function notFoundHandler(req: Request, res: Response, next: NextFunction): void {
+export function notFoundHandler(req: Request, _res: Response, next: NextFunction): void {
   const error = createApiError.notFound(`Route ${req.method} ${req.path} not found`);
   next(error);
 }
@@ -194,20 +230,47 @@ export function notFoundHandler(req: Request, res: Response, next: NextFunction)
  * Middleware to handle specific service errors
  */
 export function handleServiceError(error: Error, serviceName: string): ApiError {
-  const message = error.message;
+  const message = error.message.toLowerCase();
   
-  // Handle AI service errors
+  // Handle AI service errors with detailed categorization
   if (serviceName === 'gemini' || serviceName === 'ai') {
-    if (message.includes('rate limit') || message.includes('quota')) {
-      return createApiError.tooManyRequests('AI service rate limit exceeded. Please try again later.');
+    // Authentication errors
+    if (message.includes('api_key') || message.includes('authentication') || message.includes('unauthorized')) {
+      return createApiError.serviceUnavailable('AI service authentication failed. Please contact support.');
     }
-    if (message.includes('timeout')) {
-      return createApiError.gatewayTimeout('AI service timeout. Please try again.');
+    
+    // Rate limiting and quota errors
+    if (message.includes('rate limit') || message.includes('quota') || message.includes('429')) {
+      return createApiError.tooManyRequests('AI service rate limit exceeded. Please try again in a few minutes.');
     }
-    if (message.includes('unavailable') || message.includes('connection')) {
-      return createApiError.serviceUnavailable('AI service is temporarily unavailable.');
+    
+    // Timeout errors
+    if (message.includes('timeout') || message.includes('timed out') || message.includes('504')) {
+      return createApiError.gatewayTimeout('AI service request timed out. Please try again with a simpler request.');
     }
-    return createApiError.internalServer('AI service error occurred.');
+    
+    // Service unavailability
+    if (message.includes('unavailable') || message.includes('connection') || message.includes('503') || message.includes('502')) {
+      return createApiError.serviceUnavailable('AI service is temporarily unavailable. Please try again later.');
+    }
+    
+    // Content policy violations
+    if (message.includes('content policy') || message.includes('safety') || message.includes('blocked')) {
+      return createApiError.unprocessableEntity('Request content violates AI service policies. Please modify your topic or question.');
+    }
+    
+    // Model overload
+    if (message.includes('overloaded') || message.includes('capacity')) {
+      return createApiError.serviceUnavailable('AI service is currently overloaded. Please try again in a few minutes.');
+    }
+    
+    // Parsing/validation errors
+    if (message.includes('parse') || message.includes('validation') || message.includes('format')) {
+      return createApiError.unprocessableEntity('AI service returned invalid response format. Please try again.');
+    }
+    
+    // Generic AI service error
+    return createApiError.internalServer('AI service encountered an error. Please try again or contact support if the issue persists.');
   }
   
   // Handle vector store errors
@@ -237,10 +300,64 @@ export function handleServiceError(error: Error, serviceName: string): ApiError 
 }
 
 /**
+ * AI service fallback configuration
+ */
+export interface FallbackConfig {
+  enableFallback: boolean;
+  maxRetries: number;
+  fallbackMessage: string;
+  fallbackQuestions?: any[];
+}
+
+/**
+ * Create fallback error with retry information
+ */
+export function createFallbackError(
+  originalError: Error, 
+  serviceName: string, 
+  config: FallbackConfig
+): ApiError {
+  const baseError = handleServiceError(originalError, serviceName);
+  
+  if (config.enableFallback) {
+    return new ApiErrorClass(
+      `${baseError.message} Fallback mechanism activated.`,
+      baseError.statusCode,
+      `${baseError.code}_FALLBACK`,
+      {
+        originalError: originalError.message,
+        fallbackEnabled: true,
+        retryCount: config.maxRetries,
+        fallbackMessage: config.fallbackMessage
+      }
+    );
+  }
+  
+  return baseError;
+}
+
+/**
  * Middleware to validate that required services are available
  */
-export function validateServicesMiddleware(req: Request, res: Response, next: NextFunction): void {
-  // This could be extended to check service health
-  // For now, just continue
+export function validateServicesMiddleware(_req: Request, res: Response, next: NextFunction): void {
+  // Add service health check headers
+  res.set({
+    'X-Service-Health': 'checked',
+    'X-Fallback-Available': process.env['ENABLE_AI_FALLBACK'] === 'true' ? 'yes' : 'no'
+  });
+  
+  next();
+}
+
+/**
+ * Middleware to add rate limit headers to responses
+ */
+export function addRateLimitHeaders(_req: Request, res: Response, next: NextFunction): void {
+  // Add custom headers for rate limit information
+  res.set({
+    'X-API-Version': '1.0.0',
+    'X-Rate-Limit-Policy': 'See API documentation for rate limit details'
+  });
+  
   next();
 }

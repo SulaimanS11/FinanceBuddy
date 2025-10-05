@@ -17,7 +17,7 @@ export const rateLimitConfig = {
     },
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    handler: (req: Request, res: Response) => {
+    handler: (_req: Request, res: Response) => {
       res.status(429).json({
         error: 'Too many requests',
         message: 'Too many requests from this IP, please try again later.',
@@ -39,7 +39,7 @@ export const rateLimitConfig = {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    handler: (req: Request, res: Response) => {
+    handler: (_req: Request, res: Response) => {
       res.status(429).json({
         error: 'Too many session creation requests',
         message: 'Too many session creation attempts. Please wait before creating a new session.',
@@ -61,7 +61,7 @@ export const rateLimitConfig = {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    handler: (req: Request, res: Response) => {
+    handler: (_req: Request, res: Response) => {
       res.status(429).json({
         error: 'Too many question generation requests',
         message: 'Question generation is resource-intensive. Please wait before generating more questions.',
@@ -83,7 +83,7 @@ export const rateLimitConfig = {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    handler: (req: Request, res: Response) => {
+    handler: (_req: Request, res: Response) => {
       res.status(429).json({
         error: 'Too many follow-up requests',
         message: 'Too many follow-up questions. Please wait before asking more questions.',
@@ -105,7 +105,7 @@ export const rateLimitConfig = {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    handler: (req: Request, res: Response) => {
+    handler: (_req: Request, res: Response) => {
       res.status(429).json({
         error: 'Too many explanation requests',
         message: 'Too many explanation requests. Please wait before requesting more explanations.',
@@ -136,7 +136,7 @@ export function createRateLimit(options: {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    handler: (req: Request, res: Response) => {
+    handler: (_req: Request, res: Response) => {
       res.status(429).json({
         error: 'Rate limit exceeded',
         message: options.message,
@@ -173,15 +173,3 @@ export function getRateLimiter(type: keyof typeof rateLimitConfig) {
   return rateLimitConfig[type] || rateLimitConfig.general;
 }
 
-/**
- * Middleware to add rate limit headers to responses
- */
-export function addRateLimitHeaders(req: Request, res: Response, next: Function) {
-  // Add custom headers for rate limit information
-  res.set({
-    'X-API-Version': '1.0.0',
-    'X-Rate-Limit-Policy': 'See API documentation for rate limit details'
-  });
-  
-  next();
-}

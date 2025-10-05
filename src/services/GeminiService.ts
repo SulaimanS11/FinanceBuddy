@@ -50,6 +50,23 @@ export interface GeneratedExplanation {
   examples?: string[];
 }
 
+export interface FollowupQuestionRequest {
+  question: string;
+  context: string;
+  topic: string;
+  previousExchanges?: Array<{
+    question: string;
+    answer: string;
+    timestamp: Date;
+  }>;
+}
+
+export interface GeneratedFollowupResponse {
+  answer: string;
+  confidence?: number;
+  sourceReferences?: string[];
+}
+
 export class GeminiService {
   private genAI: GoogleGenerativeAI;
   private model: GenerativeModel;
@@ -114,6 +131,20 @@ export class GeminiService {
     });
 
     return this.validateAndParseExplanation(response);
+  }
+
+  /**
+   * Generate response to follow-up questions
+   */
+  async generateFollowupResponse(request: FollowupQuestionRequest): Promise<GeneratedFollowupResponse> {
+    const prompt = this.buildFollowupPrompt(request);
+    
+    const response = await this.executeWithRetry(async () => {
+      const result = await this.model.generateContent(prompt);
+      return result.response.text();
+    });
+
+    return this.validateAndParseFollowupResponse(response);
   }
 
   /**
@@ -219,6 +250,39 @@ Format your response as JSON:
     "Distractor 2 text",
     "Distractor 3 text"
   ]
+}`;
+  }
+
+  /**
+   * Build prompt for follow-up question response
+   */
+  private buildFollowupPrompt(request: FollowupQuestionRequest): string {
+    const previousExchangesText = request.previousExchanges && request.previousExchanges.length > 0 ? 
+      `\nPrevious Follow-up Exchanges:\n${request.previousExchanges.map((exchange, index) => 
+        `Q${index + 1}: ${exchange.question}\nA${index + 1}: ${exchange.answer}`
+      ).join('\n\n')}` : '';
+
+    return `You are an expert securities education tutor. A student has asked a follow-up question about "${request.topic}". Provide a comprehensive, pedagogically appropriate answer.
+
+Student's Follow-up Question: ${request.question}
+
+Context from Previous Session:
+${request.context}
+${previousExchangesText}
+
+Requirements:
+- Provide a clear, accurate answer grounded in the context
+- Use pedagogically appropriate language for securities education
+- Build upon previous questions and answers when relevant
+- Include examples or clarifications if helpful
+- Maintain consistency with established facts from the context
+- If the question is outside the scope of securities education, politely redirect
+
+Format your response as JSON:
+{
+  "answer": "Comprehensive answer to the follow-up question",
+  "confidence": 0.95,
+  "sourceReferences": ["Reference 1", "Reference 2"]
 }`;
   }
 
@@ -370,6 +434,36 @@ Format your response as JSON:
       return parsed as GeneratedExplanation;
     } catch (error) {
       throw new Error(`Failed to parse explanation response: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Validate and parse follow-up response
+   */
+  private validateAndParseFollowupResponse(response: string): GeneratedFollowupResponse {
+    try {
+      const parsed = JSON.parse(response);
+      
+      if (!parsed.answer || typeof parsed.answer !== 'string') {
+        throw new Error('Response must contain valid answer string');
+      }
+
+      // Confidence and sourceReferences are optional
+      if (parsed.confidence !== undefined && (typeof parsed.confidence !== 'number' || parsed.confidence < 0 || parsed.confidence > 1)) {
+        throw new Error('Confidence must be a number between 0 and 1');
+      }
+
+      if (parsed.sourceReferences !== undefined && !Array.isArray(parsed.sourceReferences)) {
+        throw new Error('Source references must be an array');
+      }
+
+      return {
+        answer: parsed.answer,
+        confidence: parsed.confidence || 0.8,
+        sourceReferences: parsed.sourceReferences || []
+      };
+    } catch (error) {
+      throw new Error(`Failed to parse follow-up response: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 }

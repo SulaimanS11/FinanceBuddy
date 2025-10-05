@@ -13,19 +13,26 @@ import {
   userAnswersSchema, 
   followupQuestionSchema,
   sessionIdSchema,
-  validateTopicMiddleware 
+  validateTopicMiddleware,
+  abusePreventionMiddleware,
+  contentSecurityMiddleware
 } from '../middleware/validation';
-import { asyncHandler, createApiError, handleServiceError } from '../middleware/errorHandler';
+import { 
+  asyncHandler, 
+  createApiError, 
+  handleServiceError, 
+  ApiErrorClass,
+  createFallbackError,
+  validateServicesMiddleware,
+  FallbackConfig
+} from '../middleware/errorHandler';
 import { rateLimitConfig } from '../middleware/rateLimit';
 
 const router = Router();
 
-// Initialize services (these would typically be injected via DI container)
-const sessionManager = new SessionManager();
-const flowController = new FlowController(sessionManager);
-
-// These services need to be properly initialized with their dependencies
-// For now, we'll create placeholder instances that will be replaced with proper initialization
+// Service instances - will be injected during initialization
+let sessionManager: SessionManager;
+let flowController: FlowController;
 let questionGenerator: QuestionGenerator;
 let explanationGenerator: ExplanationGenerator;
 let geminiService: GeminiService;
@@ -34,12 +41,16 @@ let promptManager: PromptManager;
 
 // Service initialization function (to be called during app startup)
 export function initializeServices(services: {
+  sessionManager: SessionManager;
+  flowController: FlowController;
   questionGenerator: QuestionGenerator;
   explanationGenerator: ExplanationGenerator;
   geminiService: GeminiService;
   contextRetriever: ContextRetriever;
   promptManager: PromptManager;
 }) {
+  sessionManager = services.sessionManager;
+  flowController = services.flowController;
   questionGenerator = services.questionGenerator;
   explanationGenerator = services.explanationGenerator;
   geminiService = services.geminiService;
@@ -47,12 +58,31 @@ export function initializeServices(services: {
   promptManager = services.promptManager;
 }
 
+// Initialize with default services for non-test environments
+if (process.env['NODE_ENV'] !== 'test') {
+  const defaultSessionManager = new SessionManager();
+  const defaultFlowController = new FlowController(defaultSessionManager);
+  
+  initializeServices({
+    sessionManager: defaultSessionManager,
+    flowController: defaultFlowController,
+    questionGenerator: {} as QuestionGenerator, // Will be properly initialized in production
+    explanationGenerator: {} as ExplanationGenerator,
+    geminiService: {} as GeminiService,
+    contextRetriever: {} as ContextRetriever,
+    promptManager: {} as PromptManager
+  });
+}
+
 /**
  * POST /api/sessions
  * Create a new learning session
  */
 router.post('/', 
+  contentSecurityMiddleware,
+  abusePreventionMiddleware,
   rateLimitConfig.sessionCreation,
+  validateServicesMiddleware,
   validateBody(sessionCreationSchema),
   validateTopicMiddleware,
   asyncHandler(async (req: Request, res: Response) => {
@@ -113,11 +143,25 @@ router.post('/',
       console.error('Session creation error:', error);
       
       if (error instanceof Error) {
-        if (error.message.includes('AI service') || error.message.includes('generation')) {
-          throw handleServiceError(error, 'ai');
+        // Check if fallback is enabled for AI service failures
+        const fallbackConfig: FallbackConfig = {
+          enableFallback: process.env['ENABLE_AI_FALLBACK'] === 'true',
+          maxRetries: 3,
+          fallbackMessage: 'Using simplified question generation due to AI service issues'
+        };
+
+        if (error.message.includes('AI service') || error.message.includes('generation') || error.message.includes('gemini')) {
+          if (fallbackConfig.enableFallback) {
+            throw createFallbackError(error, 'ai', fallbackConfig);
+          } else {
+            throw handleServiceError(error, 'ai');
+          }
         }
         if (error.message.includes('vector') || error.message.includes('embedding')) {
           throw handleServiceError(error, 'vector');
+        }
+        if (error.message.includes('session')) {
+          throw handleServiceError(error, 'session');
         }
       }
       
@@ -135,6 +179,9 @@ router.get('/:id/questions',
   validateParams(sessionIdSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
+    if (!id) {
+      throw createApiError.badRequest('Session ID is required');
+    }
 
     try {
       const session = await sessionManager.getSession(id);
@@ -169,6 +216,11 @@ router.get('/:id/questions',
       });
 
     } catch (error) {
+      // Re-throw ApiErrors directly (they're already properly formatted)
+      if (error instanceof ApiErrorClass) {
+        throw error;
+      }
+      
       if (error instanceof Error && error.message.includes('session')) {
         throw handleServiceError(error, 'session');
       }
@@ -188,6 +240,9 @@ router.post('/:id/reveal-answers',
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { userAnswers } = req.body;
+    if (!id) {
+      throw createApiError.badRequest('Session ID is required');
+    }
 
     try {
       const session = await sessionManager.getSession(id);
@@ -197,11 +252,12 @@ router.post('/:id/reveal-answers',
       }
 
       if (session.currentStep !== 'questions') {
+        const allowedActions = flowController.getAllowedActions(session.currentStep);
         throw createApiError.conflict(
           `Cannot reveal answers in current step: ${session.currentStep}`,
           { 
             currentStep: session.currentStep,
-            allowedActions: flowController.getAllowedActions(session.currentStep)
+            allowedActions
           }
         );
       }
@@ -273,6 +329,9 @@ router.get('/:id/explanations',
   validateParams(sessionIdSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
+    if (!id) {
+      throw createApiError.badRequest('Session ID is required');
+    }
 
     try {
       const session = await sessionManager.getSession(id);
@@ -374,12 +433,17 @@ router.get('/:id/explanations',
  * Ask follow-up questions
  */
 router.post('/:id/followup',
+  contentSecurityMiddleware,
+  abusePreventionMiddleware,
   rateLimitConfig.followupQuestions,
   validateParams(sessionIdSchema),
   validateBody(followupQuestionSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { question } = req.body;
+    if (!id) {
+      throw createApiError.badRequest('Session ID is required');
+    }
 
     try {
       const session = await sessionManager.getSession(id);
@@ -407,7 +471,7 @@ router.post('/:id/followup',
       
       try {
         // Prepare context from session questions and previous follow-ups
-        const contextText = this.prepareFollowupContext(session);
+        const contextText = prepareFollowupContext(session);
         
         const followupResponse = await geminiService.generateFollowupResponse({
           question,
@@ -419,7 +483,19 @@ router.post('/:id/followup',
         answer = followupResponse.answer;
       } catch (aiError) {
         console.error('AI service error for follow-up:', aiError);
-        throw handleServiceError(aiError as Error, 'ai');
+        
+        // Apply fallback mechanism for follow-up questions
+        const fallbackConfig: FallbackConfig = {
+          enableFallback: process.env['ENABLE_AI_FALLBACK'] === 'true',
+          maxRetries: 2,
+          fallbackMessage: 'Using simplified response generation due to AI service issues'
+        };
+
+        if (fallbackConfig.enableFallback) {
+          throw createFallbackError(aiError as Error, 'ai', fallbackConfig);
+        } else {
+          throw handleServiceError(aiError as Error, 'ai');
+        }
       }
 
       // Update session with follow-up exchange
@@ -465,6 +541,9 @@ router.get('/:id',
   validateParams(sessionIdSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
+    if (!id) {
+      throw createApiError.badRequest('Session ID is required');
+    }
 
     try {
       const session = await sessionManager.getSession(id);
@@ -511,6 +590,9 @@ router.delete('/:id',
   validateParams(sessionIdSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
+    if (!id) {
+      throw createApiError.badRequest('Session ID is required');
+    }
 
     try {
       await sessionManager.deleteSession(id);

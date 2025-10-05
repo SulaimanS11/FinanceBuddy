@@ -4,3 +4,6 @@ export * from './QuestionDisplay';
 export * from './AnswerReveal';
 export * from './ExplanationDisplay';
 export * from './FollowupDialog';
+export * from './ProgressIndicator';
+export * from './StepTransition';
+export * from './App';

@@ -51,9 +51,9 @@ app.use(errorHandler);
 // Start server
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`🚀 Securities RAG Tutor API server running on port ${PORT}`);
-    console.log(`📚 API endpoints available at http://localhost:${PORT}/api`);
-    console.log(`❤️  Health check at http://localhost:${PORT}/health`);
+    console.log(`Securities RAG Tutor API server running on port ${PORT}`);
+    console.log(`API endpoints available at http://localhost:${PORT}/api`);
+    console.log(`Health check at http://localhost:${PORT}/health`);
   });
 }
 

@@ -19,7 +19,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // Configuration
 const RAG_FILES_DIR = './RAG_FILES';
 const CHROMA_URL = process.env.CHROMA_URL || 'http://localhost:8000';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyC8ryNHEtCeQolwm6zHUWuoReHEmnaoeV4';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'YOUR-GEMINI-API-KEY-HERE';
 const COLLECTION_NAME = 'finance_textbooks';
 const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE) || 800;
 const CHUNK_OVERLAP = parseInt(process.env.CHUNK_OVERLAP) || 150;

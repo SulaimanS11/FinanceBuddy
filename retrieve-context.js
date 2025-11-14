@@ -10,7 +10,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Configuration
 const CHROMA_URL = process.env.CHROMA_URL || 'http://localhost:8000';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyC8ryNHEtCeQolwm6zHUWuoReHEmnaoeV4';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'YOUR-GEMINI-API-KEY-HERE';
 const COLLECTION_NAME = 'finance_textbooks';
 const DEFAULT_CONTEXT_CHUNKS = 5;
 

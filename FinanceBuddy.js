@@ -6,7 +6,7 @@ const path = require('path');
 const { getContext } = require('./retrieve-context');
 
 // Initialize Gemini AI
-const GEMINI_API_KEY = 'AIzaSyC8ryNHEtCeQolwm6zHUWuoReHEmnaoeV4';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'YOUR-GEMINI-API-KEY-HERE';
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
@@ -182,7 +182,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Initialize Gemini AI
-const GEMINI_API_KEY = 'AIzaSyC8ryNHEtCeQolwm6zHUWuoReHEmnaoeV4';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'YOUR-GEMINI-API-KEY-HERE';
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ 
   model: 'gemini-2.5-flash',

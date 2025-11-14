@@ -60,9 +60,9 @@ node FinanceBuddy.js "Options Trading" 10
 
 ## 📝 Supported File Types
 
-- ✅ PDF (`.pdf`)
-- ✅ Text (`.txt`)
-- ✅ Markdown (`.md`)
+- PDF (`.pdf`)
+- Text (`.txt`)
+- Markdown (`.md`)
 
 ---
 
@@ -191,4 +191,3 @@ See `README-RAG.md` for complete guide.
 
 ---
 
-**That's it! Drop files, process, generate. Simple!** 🎉

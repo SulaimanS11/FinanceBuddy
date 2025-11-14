@@ -662,4 +662,4 @@ node FinanceBuddy.js "Chapter 3 Concepts" 15
 
 ---
 
-**Happy quiz generating!** 📚✨
+**Happy quiz generating!**
